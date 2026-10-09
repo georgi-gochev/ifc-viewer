@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IFC Viewer</title>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: sans-serif; }
+    #ifc-canvas { width: 100%; height: 100%; display: block; }
+    #ifc-status { position: absolute; top: 8px; left: 8px; background: white; padding: 4px 8px; }
+  </style>
+</head>
+<body>
+  <canvas id="ifc-canvas"></canvas>
+  <div id="ifc-status">Loading model...</div>
+
+  <script type="module">
+    import { Viewer, WebIFCLoaderPlugin } from "https://cdn.jsdelivr.net/npm/@xeokit/xeokit-sdk@2.6.0/dist/xeokit-sdk.es.min.js";
+    import * as WebIFC from "https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/web-ifc-api.js";
+
+    const status = document.getElementById("ifc-status");
+
+    try {
+      const viewer = new Viewer({ canvasId: "ifc-canvas", transparent: true });
+
+      const ifcAPI = new WebIFC.IfcAPI();
+      ifcAPI.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/");
+      await ifcAPI.Init();
+
+      const loader = new WebIFCLoaderPlugin(viewer, { WebIFC, IfcAPI: ifcAPI });
+      const model = loader.load({
+        id: "model",
+        src: "model.ifc",
+        loadMetadata: true,
+        excludeUnclassifiedObjects: true
+      });
+
+      model.on("loaded", () => {
+        viewer.cameraFlight.jumpTo(model);
+        status.style.display = "none";
+      });
+      model.on("error", (msg) => { status.textContent = "Error: " + msg; });
+    } catch (e) {
+      status.textContent = "Error: " + e.message;
+      console.error(e);
+    }
+  </script>
+</body>
+</html>
