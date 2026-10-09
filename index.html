@@ -4,41 +4,108 @@
   <meta charset="utf-8">
   <title>IFC Viewer</title>
   <style>
-    html, body { margin: 0; height: 100%; font-family: sans-serif; }
-    #ifc-canvas { width: 100%; height: 100%; display: block; }
-    #ifc-status { position: absolute; top: 8px; left: 8px; background: white; padding: 4px 8px; }
+    html, body { margin: 0; height: 100%; font-family: sans-serif; overflow: hidden; }
+    #status { position: absolute; top: 8px; left: 8px; background: white; padding: 4px 8px; z-index: 5; }
   </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
-  <canvas id="ifc-canvas"></canvas>
-  <div id="ifc-status">Loading model...</div>
+  <div id="status">Loading...</div>
 
   <script type="module">
-    import { Viewer, WebIFCLoaderPlugin } from "https://cdn.jsdelivr.net/npm/@xeokit/xeokit-sdk@2.6.0/dist/xeokit-sdk.es.min.js";
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import * as WebIFC from "https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/web-ifc-api.js";
 
-    const status = document.getElementById("ifc-status");
+    const status = document.getElementById("status");
 
     try {
-      const viewer = new Viewer({ canvasId: "ifc-canvas", transparent: true });
+      // 3D scene
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xf2f2f2);
+      const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 5000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(innerWidth, innerHeight);
+      document.body.appendChild(renderer.domElement);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+      const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+      sun.position.set(50, 100, 50);
+      scene.add(sun);
 
-      const ifcAPI = new WebIFC.IfcAPI();
-      ifcAPI.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/");
-      await ifcAPI.Init();
+      // Download file
+      status.textContent = "Step 1: downloading file...";
+      const response = await fetch("model.ifc");
+      if (!response.ok) throw new Error("Could not find model.ifc (error " + response.status + ")");
+      const data = new Uint8Array(await response.arrayBuffer());
 
-      const loader = new WebIFCLoaderPlugin(viewer, { WebIFC, IfcAPI: ifcAPI });
-      const model = loader.load({
-        id: "model",
-        src: "model.ifc",
-        loadMetadata: true,
-        excludeUnclassifiedObjects: true
+      // Start reader
+      status.textContent = "Step 2: starting reader...";
+      const ifc = new WebIFC.IfcAPI();
+      ifc.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/");
+      await ifc.Init();
+
+      // Read building
+      status.textContent = "Step 3: reading building...";
+      const modelID = ifc.OpenModel(data);
+      const group = new THREE.Group();
+      scene.add(group);
+
+      ifc.StreamAllMeshes(modelID, (flatMesh) => {
+        const placed = flatMesh.geometries;
+        for (let i = 0; i < placed.size(); i++) {
+          const pg = placed.get(i);
+          const geom = ifc.GetGeometry(modelID, pg.geometryExpressID);
+          const verts = ifc.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
+          const idx = ifc.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
+
+          const buf = new THREE.InterleavedBuffer(verts, 6);
+          const g = new THREE.BufferGeometry();
+          g.setAttribute("position", new THREE.InterleavedBufferAttribute(buf, 3, 0));
+          g.setAttribute("normal", new THREE.InterleavedBufferAttribute(buf, 3, 3));
+          g.setIndex(new THREE.BufferAttribute(idx, 1));
+
+          const c = pg.color;
+          const mat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(c.x, c.y, c.z),
+            opacity: c.w,
+            transparent: c.w < 1,
+            side: THREE.DoubleSide
+          });
+          const mesh = new THREE.Mesh(g, mat);
+          mesh.matrix.fromArray(pg.flatTransformation);
+          mesh.matrixAutoUpdate = false;
+          mesh.userData.expressID = flatMesh.expressID;
+          group.add(mesh);
+          geom.delete();
+        }
       });
 
-      model.on("loaded", () => {
-        viewer.cameraFlight.jumpTo(model);
-        status.style.display = "none";
+      // Point camera at the building
+      const box = new THREE.Box3().setFromObject(group);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3()).length();
+      controls.target.copy(center);
+      camera.position.set(center.x + size, center.y + size * 0.6, center.z + size);
+      camera.far = size * 20;
+      camera.updateProjectionMatrix();
+      controls.update();
+
+      status.style.display = "none";
+
+      addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
       });
-      model.on("error", (msg) => { status.textContent = "Error: " + msg; });
+      renderer.setAnimationLoop(() => renderer.render(scene, camera));
     } catch (e) {
       status.textContent = "Error: " + e.message;
       console.error(e);
