@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>IFC Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/web-ifc-api-browser.js"></script>
   <style>
     html, body { margin: 0; height: 100%; font-family: sans-serif; overflow: hidden; }
     #status { position: absolute; top: 8px; left: 8px; background: white; padding: 4px 8px; z-index: 5; }
@@ -22,7 +23,7 @@
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-    import * as WebIFC from "https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/web-ifc-api.js";
+    
 
     const status = document.getElementById("status");
 
@@ -49,7 +50,7 @@
       // Start reader
       status.textContent = "Step 2: starting reader...";
       const ifc = new WebIFC.IfcAPI();
-      ifc.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/");
+      ifc.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/");
       await ifc.Init();
 
       // Read building
